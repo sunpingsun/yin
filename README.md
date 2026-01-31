@@ -1,13 +1,13 @@
 # Flink Kafka WordCount
 
-这是一个使用 Flink 1.14.0 和 Scala 2.12 编写的 Kafka WordCount 示例程序。
+这是一个使用 Flink 1.14.0 和 Scala 2.11 编写的 Kafka WordCount 示例程序。
 程序会从 Kafka 读取数据，进行实时 WordCount 统计，并将结果打印到 Standard Output (Web UI Log)。
 
 ## 环境要求
 
 - Flink 1.14.0
 - Kafka 2.4.1
-- Scala 2.12
+- Scala 2.11
 - Java 8 (JDK 1.8)
 
 ## 编译打包
