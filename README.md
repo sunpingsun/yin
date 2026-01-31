@@ -1,79 +1,75 @@
-# Flink Kafka WordCount
+# Flink Order Monitor - 任务 D 解决方案
 
-这是一个使用 Flink 1.14.0 和 Scala 2.11 编写的 Kafka WordCount 示例程序。
-程序会从 Kafka 读取数据，进行实时 WordCount 统计，并将结果打印到 Standard Output (Web UI Log)。
+本项目实现了“任务 D：数据采集与实时计算”的所有要求，包括 Flume 数据采集与 Flink 实时计算。
 
-## 环境要求
+## 1. 环境准备 (Environment Preparation)
 
-- Flink 1.14.0
-- Kafka 2.4.1
-- Scala 2.11
-- Java 8 (JDK 1.8)
+请确保 `192.168.12.41` 服务器上运行以下服务：
+- **Kafka** (Port 9092)
+- **Redis** (Port 6379)
+- **HDFS** (Namenode Port 8020)
 
-## 编译打包
+### 创建 Kafka Topic
+```bash
+/usr/local/kafka/bin/kafka-topics.sh --create --bootstrap-server 192.168.12.41:9092 --replication-factor 1 --partitions 4 --topic order
+```
 
-如果需要重新编译，请在项目根目录下运行：
+## 2. 启动数据采集 (Flume)
 
+### 启动数据生成器 (Netcat)
+在发送数据的机器上运行（通常是 localhost）：
+```bash
+nc -lk 10050
+```
+
+### 启动 Flume Agent
+配置文件位于 `src/main/resources/flume-job.conf`。
+
+```bash
+# 将 flume-job.conf 上传到 Flume 安装目录，然后运行：
+flume-ng agent --name a1 --conf conf --conf-file flume-job.conf -Dflume.root.logger=INFO,console
+```
+
+此时，在 `nc` 终端输入的数据将被发送到 Kafka 的 `order` Topic，并备份到 HDFS。
+
+**测试数据格式示例 (JSON):**
+请逐行输入以下 JSON 数据：
+```json
+{"order_id":"1","order_status":"1001","create_time":"2023-10-01 10:00:00","sku_id":"1","sku_num":10,"order_price":100.0}
+{"order_id":"2","order_status":"1002","create_time":"2023-10-01 10:00:01","sku_id":"2","sku_num":5,"order_price":50.0}
+```
+
+## 3. 运行 Flink 任务
+
+### 编译打包
+在项目根目录运行：
 ```bash
 mvn clean package
 ```
+成功后将在 `target/` 目录下生成 `flink-kafka-wordcount-1.0-SNAPSHOT.jar`。
 
-编译成功后，会在 `target/` 目录下生成 `flink-kafka-wordcount-1.0-SNAPSHOT.jar`。
-
-## 运行步骤 (在 192.168.12.41 上)
-
-### 1. 准备 Kafka Topic
-
-确保 Kafka 已经启动，并创建一个名为 `wordcount_input` 的 Topic (如果尚未创建)：
+### 提交任务
+将 Jar 包上传到 Flink 客户端节点 (192.168.12.41) 并提交：
 
 ```bash
-# 假设 Kafka 安装在 /usr/local/kafka (请根据实际路径调整)
-# 创建 Topic
-/usr/local/kafka/bin/kafka-topics.sh --create --bootstrap-server 192.168.12.41:9092 --replication-factor 1 --partitions 1 --topic wordcount_input
-
-# 查看 Topic 是否创建成功
-/usr/local/kafka/bin/kafka-topics.sh --list --bootstrap-server 192.168.12.41:9092
+# 提交到 Yarn 集群
+flink run -m yarn-cluster -yjm 1024 -ytm 1024 -c com.example.flink.OrderMonitor ./flink-kafka-wordcount-1.0-SNAPSHOT.jar
 ```
 
-### 2. 启动 Flink 任务
+## 4. 结果验证 (Verification)
 
-将编译好的 jar 包上传到服务器 `192.168.12.41`。
-
-提交 Flink 任务：
+### 查看 Redis 结果
+在 Redis 服务器 (192.168.12.41) 上运行：
 
 ```bash
-# 提交任务到 Flink 集群
-flink run -c com.example.flink.WordCount ./flink-kafka-wordcount-1.0-SNAPSHOT.jar
+redis-cli
+> get totalcount
+> get top3itemamount
+> get top3itemconsumption
 ```
 
-*注意：如果 Flink 是以 Standalone 模式运行，请确保环境变量 `FLINK_HOME` 已配置，且 `flink` 命令在 PATH 中。*
-
-### 3. 生产测试数据
-
-启动一个 Kafka Console Producer 向 Topic 发送数据：
-
+### 查看 HDFS 备份
 ```bash
-/usr/local/kafka/bin/kafka-console-producer.sh --broker-list 192.168.12.41:9092 --topic wordcount_input
-```
-
-在控制台中输入一些单词，例如：
-```text
-hello world
-hello flink
-flink kafka
-```
-
-### 4. 查看结果
-
-由于代码中使用的是 `stream.print()`，结果会输出到 TaskManager 的标准输出日志中。
-你可以通过 Flink Web UI 查看 TaskManager 的 Stdout 日志，或者直接在服务器上查看日志文件 (通常在 `FLINK_HOME/log` 目录下)。
-
-输出示例：
-```text
-(hello,1)
-(world,1)
-(hello,2)
-(flink,1)
-(flink,2)
-(kafka,1)
+hdfs dfs -ls /user/test/flumebackup
+hdfs dfs -text /user/test/flumebackup/events-*.txt | head -n 2
 ```
